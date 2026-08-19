@@ -17,9 +17,10 @@ Ticket: SR-3082
 ```
 
 The agent should load this skill, pull the Jira ticket, brief you on
-responsibility and **all** test-case scenarios (success, failure, edge, race),
-then branch `bugfixes/<KEY>` / root-cause fix / tests / list files changed /
-curls in chat (no `.sh` file) / PR / paste-ready PR description.
+responsibility, **all** test-case scenarios (success, failure, edge, race),
+and **paired ES + DB queries** for dual validation, then branch
+`bugfixes/<KEY>` / root-cause fix / tests / files changed / curls in chat
+(no `.sh` file) / PR / paste-ready PR description.
 
 The agent must **not** create, commit, or push `local.sh` or
 `local-validation/<KEY>.sh`.
@@ -85,6 +86,12 @@ Analyze SR-3099. Do not change code.
 ### Local curls
 - Chat handoff only. Do not write `local-validation/SR-3099.sh`.
 
+### Dual validation (ES + DB)
+- **Proves:** nested hourly VPA rate for listing `${LISTING_ID}` matches the card
+- **ES:** `way_es_index` (and `parking_inventory` if price is split-index) filtered by listing id
+- **DB:** `tbl_vendor_price_availability` (confirm `@Table` in code) for the same entity id
+- **Match:** ES price field == `VPA_ListingPrice` for the hourly row
+
 ### Risks
 - Security / PII / secrets: none
 - Production impact: search result prices for hourly parking
@@ -109,6 +116,43 @@ Do **not** write a file. Paste curls in the Step 9 handoff:
 Include a success curl (expected 200, hourly rate present), a failure curl
 (expected 4xx or empty rate, no crash), an edge curl (zero vs null), and a
 race pair if the API can double-submit.
+
+## Dual validation (ES + DB)
+
+Discover the real index/table from the change. Do **not** write a `.sql` or
+`.sh` file. Paste pairs in chat. Default local ES:
+`${ES_URL:-http://localhost:9203}` (`way.search.elasticsearch.port` is 9203).
+
+**Proves:** hourly listing price for `${LISTING_ID}` is the same in ES and DB.
+
+**ES (discovery)**
+
+```
+GET ${ES_URL:-http://localhost:9203}/way_es_index/_doc/${LISTING_ID}?_source=id,name
+```
+
+**ES (volatile price — parking split index)**
+
+```
+GET ${ES_URL:-http://localhost:9203}/parking_inventory/_search
+{
+  "query": { "term": { "parentListingId": ${LISTING_ID} } },
+  "_source": ["parentListingId", "childId", "pricingType", "price"]
+}
+```
+
+**DB (confirm `@Table` in code — here `tbl_vendor_price_availability`)**
+
+```
+SELECT VPA_EntityID, VPA_ListingPrice, VPA_ListingOriginalPrice, VPA_Status
+FROM WAY_PLATFORM.tbl_vendor_price_availability
+WHERE VPA_EntityID = ${LISTING_ID};
+```
+
+**Match:** `parking_inventory.price` == `VPA_ListingPrice` for the same child /
+entity. If they differ, the index is stale or the mapper is still wrong.
+
+If the ticket does not touch ES, `ES: N/A — <reason>` and still give SQL.
 
 ## Example final handoff (Step 9)
 
@@ -149,6 +193,12 @@ run curls from chat, and merge the PR. There is **no** `.sh` on the branch.
 1. Start `ms-search` locally (port 8081).
 2. Optional: `export TOKEN='your-local-jwt'`
 3. Copy-paste the success, failure, edge, and (if applicable) race curls from chat.
+
+### Dual validation (ES + DB, chat only)
+- **Proves:** hourly price for listing `${LISTING_ID}`
+- **ES:** `GET ${ES_URL}/parking_inventory/_search` term `parentListingId`
+- **DB:** `SELECT VPA_ListingPrice FROM WAY_PLATFORM.tbl_vendor_price_availability WHERE VPA_EntityID = ${LISTING_ID}`
+- **Match:** `parking_inventory.price` == `VPA_ListingPrice`
 ```
 
 ### PR description — copy-paste into GitHub before merge
@@ -191,6 +241,7 @@ Open PR #987 → Description → replace with the block below → Save.
 1. Start ms-search locally (port 8081)
 2. Optional: `export TOKEN='your-local-jwt'`
 3. Run the success/failure/edge curls from the agent chat (no `.sh` on the branch)
+4. Run the paired ES + SQL queries; confirm `parking_inventory.price` == `VPA_ListingPrice`
 
 ## Risk
 - Impact: search result prices for hourly parking

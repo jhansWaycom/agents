@@ -14,7 +14,7 @@ HTTPS: https://github.com/jhansWaycom/agents
 
 | Skill | Folder | Use when |
 |-------|--------|----------|
-| **Jira-bugfixingAgent** | `.cursor/skills/Jira-bugfixingAgent/` | You pass a Jira key and want analysis, a root-cause fix, tests (success / failure / edge / race), a PR, and a paste-ready PR description |
+| **Jira-bugfixingAgent** | `.cursor/skills/Jira-bugfixingAgent/` | Jira key → root-cause fix, tests (success / failure / edge / race), paired ES + DB queries for dual validation, PR, paste-ready description |
 
 ## Install Jira-bugfixingAgent
 

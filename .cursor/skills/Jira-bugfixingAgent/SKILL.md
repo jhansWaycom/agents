@@ -4,35 +4,28 @@ description: >-
   Jira-bugfixingAgent: analyzes a Jira ticket, implements the correct
   root-cause fix on branch bugfixes/<ticket-key>, lists every file changed,
   runs all module tests, reports all test-case scenarios (success, failure,
-  edge, race), pastes local curls in chat only (never writes or commits a
-  .sh file), opens a pull request, and after the PR exists prints a filled
-  GitHub-ready description the user can paste into the PR before merge. Use
-  when the user provides a Jira ticket number or key (for example SR-3099)
-  and asks to fix the issue, implement the ticket, analyze the ticket, or
-  create a PR for it.
+  edge, race), pastes local curls plus paired Elasticsearch and DB queries
+  for dual validation (chat only, never a .sh file), opens a pull request,
+  and after the PR exists prints a filled GitHub-ready description the user
+  can paste into the PR before merge. Use when the user provides a Jira
+  ticket number or key (for example SR-3099) and asks to fix the issue,
+  implement the ticket, analyze the ticket, or create a PR for it.
 ---
 
 # Jira-bugfixingAgent
 
-Retrieve the Jira ticket, state responsibility, implement the **correct
-root-cause fix**, run ticket tests plus the module suite, list **all**
-test-case scenarios (success, failure, edge, race), paste local curls **in
-chat only**, open a PR on `bugfixes/<ticket-key>`, and after the PR exists
-print a **filled PR description** the user can paste into GitHub before merge.
+Retrieve the ticket, brief responsibility, implement the **root-cause fix**,
+run tests, list **all** scenarios (success, failure, edge, race), paste curls
+**and paired ES + DB queries** in chat only, open a PR, and print a **filled
+PR description** to paste into GitHub before merge.
 
 Do **not** start coding until analysis is complete. If the ticket is too vague, stop and ask.
 
-## Hard rules — no local shell files
+## Hard rules — no local query files
 
-**Never** create, write, chmod, stage, commit, or push any of these:
-
-- `local.sh`
-- `local-validation/<KEY>.sh`
-- `local-validation/` (any file)
-- any other generated `*.sh` curl/validation script
-
-Do not add those paths if they already exist untracked. Do not mention a
-"local curl file" in the PR or commit. Put curls in the chat handoff only.
+**Never** create, stage, commit, or push `local.sh`, `local-validation/**`,
+generated curl `*.sh`, or `.sql` query files. Put curls and ES/DB queries in
+chat only. Leave those paths untracked if they already exist.
 
 ## Input
 
@@ -56,10 +49,10 @@ Ticket: <KEY>
 - [ ] 3. Create branch bugfixes/<KEY> from origin/dev
 - [ ] 4. Implement the correct root-cause fix (minimal, ticket-scoped)
 - [ ] 5. Add tests for success, failure, edge, and race; run those, then all module tests
-- [ ] 6. Paste local curls in chat only — do NOT write or commit any .sh file
+- [ ] 6. Paste local curls AND paired ES + DB queries in chat — do NOT write any .sh/.sql file
 - [ ] 7. Security / secrets / SOC2 check
 - [ ] 8. Collect files changed (path + why), commit, push, open PR
-- [ ] 9. Handoff: PR number, files, scenarios, curls, and paste-ready PR description
+- [ ] 9. Handoff: PR number, files, scenarios, curls, dual-validation queries, paste-ready PR description
 ```
 
 ## Step 1 — Retrieve the ticket
@@ -84,13 +77,8 @@ getJiraIssue(
 `comment` returns comments on `fields.comment.comments`. Read **all** comments;
 later comments often contain the real repro, expected behavior, or a narrowed scope.
 
-Also collect:
-
-- Issue type, status, priority, components, labels
-- Linked issues (blockers, clones, related bugs)
-- Acceptance criteria / repro steps in description or comments
-- Environment (prod / staging / iOS / Android / web)
-- Affected service or API path if mentioned
+Also collect: type, status, priority, components, labels, linked issues,
+acceptance / repro, environment, affected API if mentioned.
 
 If the ticket is missing or inaccessible, stop and tell the user.
 
@@ -141,6 +129,10 @@ For each scenario: **name**, **given / when / then**, **expected**, **coverage**
 
 ### Local curls
 - Paste in the Step 9 chat handoff only. Do **not** write a `.sh` file.
+
+### Dual validation (ES + DB)
+- Pair: what it proves, ES query, SQL query, match rule (ES field = SQL column)
+- Or `N/A` on a side with reason. See Step 6c.
 
 ### Risks
 - Security / PII / secrets: ...
@@ -201,9 +193,6 @@ The job is to fix **the problem described in the ticket**, not a nearby cleanup.
 If investigation shows the ticket is already fixed on `dev`, stop, cite the evidence,
 and do not open an empty PR.
 
-After the fix is written, keep a running list of every path you created or
-edited and a one-line reason. You will print this list in the PR and in Step 9.
-
 ## Step 5 — Tests, then all module tests
 
 For each changed behavior, add or update JUnit 5 tests in the same module.
@@ -217,12 +206,8 @@ is typical).
 | Edge | Null/empty, boundary values, and any case called out in comments — see Step 6 catalog |
 | Race | Concurrent / overlapping / duplicate / stale-read cases that apply to this change — see Step 6 catalog |
 
-For race tests, prefer existing module patterns. Typical Java approaches:
-`CountDownLatch` + thread pool, two overlapping service calls, optimistic-lock
-version conflict, duplicate-message / idempotent consumer. If the code path
-cannot express a race in unit tests, still **list** the scenario (coverage:
-listed only + why) and add the closest sequential test (e.g. retry after
-partial success).
+For race tests, prefer `CountDownLatch` / overlapping calls / optimistic-lock
+conflicts. If a race cannot be unit-tested, **list** it (`listed only` + why).
 
 **5a. Ticket tests first** (from the module directory):
 
@@ -322,19 +307,33 @@ If a race can be shown with two curls, paste those too (label them as concurrent
   the ticket is fixed
 
 If there is no HTTP surface (pure scheduler/DAL), say so in chat and give the
-closest local command (job trigger, SQL, or nearest public API). Still **do
-not** write a `.sh` file.
+closest local command. Still **do not** write a `.sh` file.
 
 **Forbidden:** `Write` / `touch` / `chmod` / `git add` of `local.sh`,
-`local-validation/**`, or any generated curl script. Do not finish the run
-by creating those files.
+`local-validation/**`, any generated curl script, or `.sql` query files.
+
+### 6c. Dual validation — Elasticsearch + DB (required, chat only)
+
+Paste **paired** queries so the user can confirm ES matches the DB for the
+same entity. Do not invent names — read them from this change’s code:
+`SearchProperties` (`way_es_index`, `parking_inventory`,
+`parking_rolling_avail`), `IndexRequest`, document classes, indexer DAOs;
+`@Table` / `@Entity` / `@Query` / indexer SQL (`WAY_PLATFORM` when used).
+
+Each pair: **Proves** / **ES** (`GET ${ES_URL:-http://localhost:9203}/<index>/_search`
+or `/_doc/${ID}`, `_source` only fields under test) / **DB** (same placeholder
+id) / **Match** (`ES.<field> == SQL.<column>`, note index lag).
+
+Search / index / price-card / listing tickets **must** include both sides.
+Otherwise `N/A — <reason>` on the unused side. No secrets, PII, `.sql` files,
+or commits of these queries. Templates: [examples.md](examples.md).
 
 ## Step 7 — Security / Way engineering checks
 
 Before commit:
 
 - No secrets, API keys, tokens, or credentials in the diff
-- No `local.sh` / `local-validation/` / generated `*.sh` in the diff
+- No `local.sh` / `local-validation/` / generated `*.sh` or `.sql` query files in the diff
 - Least privilege: do not widen auth or `permitAll` unless the ticket requires it
 - Sensitive data stays encrypted in transit/at rest; do not log PII
 - If monitoring, runbooks, or Confluence need updates, say so in the PR (do not
@@ -344,10 +343,8 @@ Before commit:
 
 ## Step 8 — Files changed, commit, and PR
 
-Commit only when the fix and all module tests are in place. Do **not** commit
-`local.sh`, `local-validation/`, or any generated curl script. Do not commit
-unless this skill's workflow is running to completion (the user already asked
-to fix and open a PR).
+Commit only when the fix and module tests are in place. Do **not** commit
+`local.sh`, `local-validation/`, curl scripts, or `.sql` files.
 
 **Files changed (required).** Before commit, collect the exact list from git
 and keep it for the PR body and Step 9. Do not skip this.
@@ -364,9 +361,8 @@ git diff --name-status origin/dev...HEAD
 ```
 
 For each path, record `A` (added), `M` (modified), or `D` (deleted) plus a
-one-line why. Include tests. **Exclude** `local.sh`, `local-validation/`,
-`.idea/`, `.DS_Store`, and local secrets. If git status shows a `.sh`
-validation file, leave it untracked and do not add it.
+one-line why. Include tests. Exclude `local.sh`, `local-validation/`, `.idea/`,
+`.DS_Store`, secrets, and any `.sh`/`.sql` validation files (leave untracked).
 
 Commit message style (why, with ticket key):
 
@@ -395,7 +391,7 @@ Use it as `gh pr create` `--body` **and** reprint it in Step 9 as a
 copy-paste fence for GitHub before merge.
 
 The final message must include **PR #<number>**, URL, files, scenarios,
-curls, and the paste-ready PR description — not only a compare URL.
+curls, **paired ES + DB queries**, and the paste-ready PR description.
 
 PR description template (fill every section; this is what gets pasted):
 
@@ -433,6 +429,10 @@ PR description template (fill every section; this is what gets pasted):
 ## How to test
 1. Start `<module>` locally (port <port>). Optional: `export TOKEN='your-local-jwt'`
 2. No `.sh` on the branch. Paste **Success / Failure / Edge** curls (expect status + field).
+3. Dual validation: run the paired ES query and SQL; confirm the match rule.
+
+## Dual validation
+- **Proves / ES / DB / Match:** ... (or N/A — reason)
 
 ## Risk
 - Impact: ...
@@ -449,8 +449,8 @@ Do **not** transition the Jira status or comment on the ticket unless the user a
 
 ## Step 9 — Final handoff (required)
 
-Do not omit PR number, files, scenarios, curls, or the paste-ready
-description. Shape:
+Do not omit PR number, files, scenarios, curls, dual-validation queries, or
+the paste-ready description. Shape:
 
 ```markdown
 ## Done: <KEY>
@@ -473,6 +473,12 @@ description. Shape:
 ### Local curls (chat only — no file on the branch)
 Start `<module>` (port <port>). Optional `TOKEN`. Paste success, failure,
 edge, and race curls with `${TOKEN:-}`. Label expected status/field.
+
+### Dual validation (ES + DB, chat only)
+- **Proves:** ...
+- **ES:** ...
+- **DB:** ...
+- **Match:** ES.`<field>` == SQL.`<column>` (or N/A — reason)
 ```
 
 **After** that Done block, print:
@@ -481,8 +487,7 @@ edge, and race curls with `${TOKEN:-}`. Label expected status/field.
 
 Then: open PR #<number> → Description → replace with the next fence → Save.
 The fence body is the **filled** Step 8 PR description only (real paths,
-tests, scenarios, curls). No commentary inside the fence. Required once
-the PR exists.
+tests, scenarios, curls, ES + DB pairs). No commentary inside the fence.
 
 If `gh pr view` failed, parse the number from the create URL (`.../pull/987`
 → `#987`) and still print it.
@@ -492,8 +497,8 @@ If `gh pr view` failed, parse the number from the create URL (`.../pull/987`
 - Ticket not found / no permission
 - Ambiguous acceptance criteria
 - Fix would require production secrets, DNS, or Cloudflare changes
-- User asked only to *analyze* the ticket — then stop after Step 2 (still
-  include the full test-case scenario list in the briefing)
+- User asked only to *analyze* — stop after Step 2 (still include scenarios
+  and dual-validation ES + DB pairs)
 
 ## Additional resources
 
