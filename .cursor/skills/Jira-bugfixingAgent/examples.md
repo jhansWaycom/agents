@@ -25,6 +25,10 @@ and **paired ES + DB queries** for dual validation, then branch
 The agent must **not** create, commit, or push `local.sh` or
 `local-validation/<KEY>.sh`.
 
+**Don't hallucinate — just follow the comments and descriptions.** Quote the
+Jira description and comments in the briefing. Do not invent APIs, tables,
+ES fields, or extra product scope.
+
 Analyze-only (no code, no PR):
 
 ```
@@ -38,11 +42,11 @@ Analyze SR-3099. Do not change code.
 **Summary:** Hourly parking card shows $0 instead of the nested VPA rate
 **Type / status / priority:** Bug / To Do / High
 
-### What the ticket says
-- Expected: Hourly card uses the nested VPA rate for the selected duration
-- Actual: Card renders $0 after the rate-table change
-- Repro: Search airport parking → open listing → hourly card
-- Constraints from comments: Do not change daily/overnight pricing
+### What the ticket says (quote description / comments — do not paraphrase into new requirements)
+- Expected: "Hourly card uses the nested VPA rate" (source: description)
+- Actual: "Card renders $0 after the rate-table change" (source: description)
+- Repro: "Search airport parking → open listing → hourly card" (source: description)
+- Constraints from comments: "Do not change daily/overnight pricing" (source: comment)
 
 ### Agent responsibility
 - In scope: Restore hourly price mapping in ms-search from nested VPA rates

@@ -9,7 +9,8 @@ description: >-
   and after the PR exists prints a filled GitHub-ready description the user
   can paste into the PR before merge. Use when the user provides a Jira
   ticket number or key (for example SR-3099) and asks to fix the issue,
-  implement the ticket, analyze the ticket, or create a PR for it.
+  implement the ticket, analyze the ticket, or create a PR for it. Do not
+  hallucinate: follow the Jira comments and description only.
 ---
 
 # Jira-bugfixingAgent
@@ -20,6 +21,27 @@ run tests, list **all** scenarios (success, failure, edge, race), paste curls
 PR description** to paste into GitHub before merge.
 
 Do **not** start coding until analysis is complete. If the ticket is too vague, stop and ask.
+
+## Guardrails — don't hallucinate
+
+**Just follow the comments and descriptions.** The only product requirements
+are the Jira **summary**, **description**, and **comments** (later comments
+win if they narrow or correct earlier text). Quote those sources in Step 2.
+
+- Do **not** invent expected behavior, APIs, fields, tables, ES indices,
+  payloads, error codes, or acceptance criteria
+- Do **not** assume a similar past ticket, “usual” Way pattern, or unstated
+  product rule is in scope
+- Code facts (paths, method names, index/table/column names) come only from
+  files you **actually read** in this repo — never from memory of another
+  service or an imagined schema
+- Dual-validation queries use only discovered names; if you did not find the
+  index or table in code, write `N/A — not in code` instead of guessing
+- If description and comments conflict, follow the **latest comment**, say so,
+  and do not merge both into a new invented requirement
+- If anything needed to implement is missing from the ticket **and** the
+  code, **stop and ask** — do not fill the gap with a guess
+- Do not claim tests, PRs, or file changes you did not produce
 
 ## Hard rules — no local query files
 
@@ -45,7 +67,7 @@ Copy and track:
 ```
 Ticket: <KEY>
 - [ ] 1. Retrieve ticket (summary, description, comments, attachments, links)
-- [ ] 2. State responsibility, implementation plan, and ALL test-case scenarios
+- [ ] 2. State responsibility from description+comments only (quote sources; no invented scope)
 - [ ] 3. Create branch bugfixes/<KEY> from origin/dev
 - [ ] 4. Implement the correct root-cause fix (minimal, ticket-scoped)
 - [ ] 5. Add tests for success, failure, edge, and race; run those, then all module tests
@@ -92,11 +114,11 @@ Post this briefing **before** changing code. This is the agent's contract for th
 **Type / status / priority:** ...
 **Reported by / comments:** ...
 
-### What the ticket says
-- Expected: ...
-- Actual: ...
-- Repro (if present): ...
-- Constraints from comments: ...
+### What the ticket says (quote description / comments — do not paraphrase into new requirements)
+- Expected: "..." (source: description | comment)
+- Actual: "..." (source: ...)
+- Repro (if present): "..."
+- Constraints from comments: "..."
 
 ### Agent responsibility
 - In scope: ...
@@ -146,13 +168,15 @@ scenario catalog.
 
 **Stop and ask** when any of these are true:
 
-- No expected vs actual behavior can be inferred
+- No expected vs actual behavior can be inferred **from the description or comments**
 - The ticket is a product/design question, not a code change
 - The fix belongs in a different repo
 - The change would be a large architectural rewrite with no acceptance criteria
 - The ticket asks for production config, DNS, or secret rotation (do not do this here)
+- Implementing would require guessing anything not in the ticket or the code
 
-Do not invent requirements that are not in the ticket or comments.
+Do **not** invent requirements. Don't hallucinate — just follow the comments
+and descriptions.
 
 ## Step 3 — Branch
 
@@ -170,13 +194,14 @@ was created for this ticket. Do not commit on `dev` or `main`.
 
 ## Step 4 — Implement the correct fix
 
-The job is to fix **the problem described in the ticket**, not a nearby cleanup.
+The job is to fix **the problem in the ticket description and comments**,
+not a nearby cleanup and not an assumed similar bug.
 
 1. Search the matching module first (`ms-search`, `ms-orders`, `ms-listings`,
    `ms-consumer`, `ms-tickets`, `ms-reports`, `ms-schedulers`, `ms-payments`,
    `ms-common-util`). way-services is a multi-module Java 21 / Spring Boot repo.
-2. Trace expected vs actual from the ticket into the code. Find the root cause
-   (wrong field, missing null check, bad query, incorrect mapping, etc.).
+2. Trace expected vs actual **as written in the ticket** into code you opened.
+   Do not invent a root cause that the description/comments do not support.
 3. Implement the smallest change that makes actual match expected. Do not paper
    over the bug (hardcoded values, catching-and-ignoring, UI-only workarounds)
    unless the ticket explicitly asks for that.
@@ -238,9 +263,10 @@ Do not claim the ticket is fixed if 5a or 5b was not run.
 ### 6a. Scenario catalog (required)
 
 Enumerate **every applicable scenario** for this ticket. Do not stop at happy
-path. Walk the changed code and include cases from this catalog when they can
-happen. If a catalog item cannot apply, write `N/A — <reason>` under that
-heading rather than omitting the heading.
+path. Walk the changed code. Edge/race come from **ticket comments/description**
+and the **types in files you read** — do not invent extra product behavior.
+If a catalog item cannot apply, write `N/A — <reason>` rather than omitting
+the heading.
 
 **Success**
 - Primary happy path from the ticket expected result
@@ -405,9 +431,9 @@ PR description template (fill every section; this is what gets pasted):
 - `A` `<path>` — <why>
 
 ## Ticket
-- **Expected:** ...
-- **Actual (before):** ...
-- **Agent responsibility:** ...
+- **Expected:** ... (quote description/comment)
+- **Actual (before):** ... (quote)
+- **Agent responsibility:** ... (in-scope only from those quotes)
 
 ## Test case scenarios
 ### Success
@@ -495,7 +521,8 @@ If `gh pr view` failed, parse the number from the create URL (`.../pull/987`
 ## Stop conditions
 
 - Ticket not found / no permission
-- Ambiguous acceptance criteria
+- Ambiguous acceptance criteria (do not guess; ask)
+- Implementing would require hallucinating missing description/comment/code facts
 - Fix would require production secrets, DNS, or Cloudflare changes
 - User asked only to *analyze* — stop after Step 2 (still include scenarios
   and dual-validation ES + DB pairs)
