@@ -7,18 +7,22 @@ description: >-
   edge, race), pastes local curls plus paired Elasticsearch and DB queries
   for dual validation (chat only, never a .sh file), opens a pull request,
   and after the PR exists prints a filled GitHub-ready description the user
-  can paste into the PR before merge. Use when the user provides a Jira
-  ticket number or key (for example SR-3099) and asks to fix the issue,
-  implement the ticket, analyze the ticket, or create a PR for it. Do not
-  hallucinate: follow the Jira comments and description only.
+  can paste into the PR before merge, then closes with a self-assessment
+  scorecard grading its own run (ticket fidelity, root cause, coverage,
+  tests actually executed, dual validation, security, honesty) with
+  evidence, unverified claims, and residual risk. Use when the user provides
+  a Jira ticket number or key (for example SR-3099) and asks to fix the
+  issue, implement the ticket, analyze the ticket, or create a PR for it. Do
+  not hallucinate: follow the Jira comments and description only.
 ---
 
 # Jira-bugfixingAgent
 
 Retrieve the ticket, brief responsibility, implement the **root-cause fix**,
 run tests, list **all** scenarios (success, failure, edge, race), paste curls
-**and paired ES + DB queries** in chat only, open a PR, and print a **filled
-PR description** to paste into GitHub before merge.
+**and paired ES + DB queries** in chat only, open a PR, print a **filled
+PR description** to paste into GitHub before merge, and finish with a
+**self-assessment** of the run (Step 10).
 
 Do **not** start coding until analysis is complete. If the ticket is too vague, stop and ask.
 
@@ -75,6 +79,7 @@ Ticket: <KEY>
 - [ ] 7. Security / secrets / SOC2 check
 - [ ] 8. Collect files changed (path + why), commit, push, open PR
 - [ ] 9. Handoff: PR number, files, scenarios, curls, dual-validation queries, paste-ready PR description
+- [ ] 10. Self-assessment scorecard: grade this run with evidence, list unverified claims and residual risk
 ```
 
 ## Step 1 — Retrieve the ticket
@@ -515,8 +520,81 @@ Then: open PR #<number> → Description → replace with the next fence → Save
 The fence body is the **filled** Step 8 PR description only (real paths,
 tests, scenarios, curls, ES + DB pairs). No commentary inside the fence.
 
+After the fence, add the Step 10 self-assessment. The turn is not done until
+that scorecard is posted.
+
 If `gh pr view` failed, parse the number from the create URL (`.../pull/987`
 → `#987`) and still print it.
+
+## Step 10 — Self-assessment (required, last message)
+
+Once everything else is done, grade **your own run** before ending the turn.
+This is a critical review of the agent's work, not a victory lap. Post it as
+the last section of the final message, after the paste-ready PR description.
+
+**Evidence rule.** Mark a row `Met` only when you can point to something real
+from this run: a command you ran and its output, a file you opened, a test
+count, a JUnit method name, a PR number. If the only support is "I intended
+to" or "it should be fine", the row is `Partial` or `Missed`. Never grade a
+step `Met` because the skill told you to do it.
+
+**No grade inflation.** These caps are hard:
+
+- Step 5b (`mvn test` per changed module) not run or not green → overall
+  **cannot exceed 6/10**, and the Tests row is `Missed`
+- Any edge or race heading left out (rather than `N/A — reason`) → Coverage
+  row is `Missed`
+- A required Step 6b curl or Step 6c ES/DB pair missing without a stated
+  reason → that row is `Missed`
+- Any invented API, table, index, field, or acceptance criterion found during
+  self-review → Honesty row is `Missed` and overall **cannot exceed 4/10**;
+  fix or retract the invention before ending the turn
+
+**Repair before reporting.** If a row would be `Missed` for a step you can
+still complete (a test run, a missing curl, a forgotten `git diff`), go do it
+now and then grade the corrected state. Only report `Missed` for work that is
+genuinely blocked — and say what blocks it.
+
+Scorecard shape:
+
+```markdown
+### Self-assessment — <KEY>
+
+| # | Criterion | Verdict | Evidence |
+|---|-----------|---------|----------|
+| 1 | Ticket fidelity — fix matches quoted description/comments, no added scope | Met / Partial / Missed | quote + file:line |
+| 2 | Root cause, not symptom — no hardcode, swallow, or UI-only patch | ... | what changed and why it's the cause |
+| 3 | Scope discipline — minimal diff, no drive-by refactor or formatting churn | ... | `git diff --name-status` result |
+| 4 | Coverage — success/failure/edge/race all present (JUnit or justified `listed only`) | ... | counts per category |
+| 5 | Tests actually executed — 5a ticket tests + 5b `mvn test` per changed module | ... | tests run / failures / errors per module |
+| 6 | Curls in chat, no `.sh`/`.sql` on the branch | ... | curls pasted + clean `git status --short` |
+| 7 | Dual validation — ES + DB pair with names read from code, or `N/A — reason` | ... | index / table names + where found |
+| 8 | Security & SOC2 — no secrets, no widened auth, no PII logged | ... | what was checked in the diff |
+| 9 | PR & handoff — number, URL, files with why, paste-ready description | ... | PR #<n> |
+| 10 | Honesty — every claim above is backed by a real command or file | ... | anything retracted |
+
+**Overall: <n>/10** — <one sentence, blunt>
+
+**Weakest link:** <the row most likely to cause a review comment or a bug, and why>
+
+**Unverified — user must confirm:** <claims not proven locally: integration
+tests needing Docker/ES, prod-only behavior, curls not actually executed
+against a running service>
+
+**Assumptions made:** <should be none; list any and mark whether the ticket or
+the code supports it, or say "none — all facts from ticket + files read">
+
+**Would do differently:** <one or two concrete process changes for the next ticket>
+
+**Way engineering follow-ups:** <Confluence / runbook / monitoring / alerting
+updates this change implies, or "none">
+```
+
+If the user asked only to analyze (no code, no PR), still post the scorecard,
+scoped to what the run produced. Rows 2, 3, 5, 6, 8, and 9 become
+`N/A — analyze-only run`; grade row 1 on ticket fidelity, row 4 on the
+completeness of the *planned* scenario catalog, row 7 on the *planned* ES + DB
+pairs, and row 10 on honesty.
 
 ## Stop conditions
 
@@ -524,8 +602,13 @@ If `gh pr view` failed, parse the number from the create URL (`.../pull/987`
 - Ambiguous acceptance criteria (do not guess; ask)
 - Implementing would require hallucinating missing description/comment/code facts
 - Fix would require production secrets, DNS, or Cloudflare changes
-- User asked only to *analyze* — stop after Step 2 (still include scenarios
-  and dual-validation ES + DB pairs)
+- User asked only to *analyze* — stop after Step 2 (still include scenarios,
+  dual-validation ES + DB pairs, and the Step 10 scorecard)
+
+When you stop for any reason above, still close with a short Step 10
+self-assessment: what you verified, what blocked you, and exactly what input
+you need to continue. A stopped run is graded on how clearly it hands the
+blocker back, not on how much code it wrote.
 
 ## Additional resources
 

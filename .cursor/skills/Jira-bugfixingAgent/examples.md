@@ -20,7 +20,8 @@ The agent should load this skill, pull the Jira ticket, brief you on
 responsibility, **all** test-case scenarios (success, failure, edge, race),
 and **paired ES + DB queries** for dual validation, then branch
 `bugfixes/<KEY>` / root-cause fix / tests / files changed / curls in chat
-(no `.sh` file) / PR / paste-ready PR description.
+(no `.sh` file) / PR / paste-ready PR description, and close with a
+self-assessment scorecard grading its own run.
 
 The agent must **not** create, commit, or push `local.sh` or
 `local-validation/<KEY>.sh`.
@@ -253,5 +254,47 @@ Open PR #987 → Description → replace with the block below → Save.
 
 ## Validation after merge
 - Hourly parking card shows nested VPA rate, not $0
+```
+
+## Example self-assessment (Step 10)
+
+The very last thing in the run. Honest grading beats a clean-looking table —
+`Partial` and `Missed` rows are normal and are what make the report useful.
+
+```markdown
+### Self-assessment — SR-3099
+
+| # | Criterion | Verdict | Evidence |
+|---|-----------|---------|----------|
+| 1 | Ticket fidelity | Met | Description "hourly card uses the nested VPA rate"; comment "do not change daily/overnight" honored — diff touches only the hourly branch in `PriceStatsService.java:214` |
+| 2 | Root cause, not symptom | Met | Flattened field was never populated after the rate-table change; fix reads the nested rate at the source instead of defaulting to 0 |
+| 3 | Scope discipline | Met | `git diff --name-status origin/dev...HEAD` = 2 files (1 main, 1 test), no formatting-only hunks |
+| 4 | Coverage | Partial | Success 1, failure 1, edge 2, race 1 — but the race case is `listed only`: the mapper is stateless, a latch test would assert nothing real |
+| 5 | Tests actually executed | Met | `mvn -q test -Dtest=PriceStatsServiceTest` 5/0/0; `mvn test` in ms-search 412 tests, 0 failures, 0 errors (es-integration excluded by default profile) |
+| 6 | Curls in chat, no script on branch | Met | 4 curls pasted above; `git status --short` shows no `local.sh` / `local-validation/` |
+| 7 | Dual validation | Partial | `parking_inventory` index from `SearchProperties`, `tbl_vendor_price_availability` from `@Table` — queries pasted but **not executed** (no local ES/DB in this session) |
+| 8 | Security & SOC2 | Met | No credentials in diff, no auth change, no price/PII logging added; `${TOKEN:-}` placeholder only |
+| 9 | PR & handoff | Met | PR #987 with filled description, files-changed list with reasons |
+| 10 | Honesty | Met | Nothing retracted; no table, index, or field named that I did not read in this repo |
+
+**Overall: 8/10** — correct root-cause fix with green module tests, but the race
+case and the ES/DB pair are asserted on paper rather than executed.
+
+**Weakest link:** row 7. The mapper is provably right in unit tests, yet nobody
+has confirmed the indexed document actually matches the DB row, so a stale-index
+bug would still look like this ticket.
+
+**Unverified — user must confirm:** the ES/SQL pair against a real environment;
+`es-integration` tests (need Docker); the four curls were never sent to a
+running ms-search.
+
+**Assumptions made:** none — expected behavior from the description, the
+daily/overnight carve-out from the comment, all names from files read.
+
+**Would do differently:** discover the index and table names in Step 2 instead
+of Step 6c; the `@Table` lookup came late and nearly shipped as a guess.
+
+**Way engineering follow-ups:** none for monitoring; worth a Confluence note on
+the pricing runbook that hourly now resolves from nested VPA rates.
 ```
 
